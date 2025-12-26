@@ -6,8 +6,10 @@ This is the primary script to run the demand prediction application.
 import sys
 import os
 
-# Add current directory to path to ensure imports work
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add src directory to path to ensure imports work
+project_root = os.path.dirname(os.path.abspath(__file__))
+src_path = os.path.join(project_root, 'src')
+sys.path.insert(0, src_path)
 
 from demand_prediction import main
 

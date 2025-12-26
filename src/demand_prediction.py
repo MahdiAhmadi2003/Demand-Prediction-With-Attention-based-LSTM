@@ -14,6 +14,7 @@ import tensorflow as tf
 
 from data_preprocessing import DataPreprocessor
 from attention_lstm_model import AttentionLSTM
+from location_based_prediction import LocationBasedPredictor
 
 
 def parse_arguments():
@@ -85,6 +86,30 @@ def parse_arguments():
         action='store_true',
         help='Generate prediction plots'
     )
+    parser.add_argument(
+        '--location_based',
+        action='store_true',
+        help='Enable location-based prediction (by city or state)'
+    )
+    parser.add_argument(
+        '--location_type',
+        type=str,
+        default='state',
+        choices=['state', 'city'],
+        help='Location type for grouping: state or city (default: state)'
+    )
+    parser.add_argument(
+        '--min_location_samples',
+        type=int,
+        default=100,
+        help='Minimum samples required per location to train a model (default: 100)'
+    )
+    parser.add_argument(
+        '--report_file',
+        type=str,
+        default='reports/location_demand_report.xlsx',
+        help='Output Excel report file name (default: reports/location_demand_report.xlsx)'
+    )
     
     return parser.parse_args()
 
@@ -109,13 +134,17 @@ def train_model(args):
     # Get number of features
     n_features = X_train.shape[2]
     
-    # Initialize model
+    # Initialize enhanced model with better defaults
     model = AttentionLSTM(
         sequence_length=args.sequence_length,
         n_features=n_features,
-        lstm_units=args.lstm_units,
-        dropout_rate=0.2,
-        prediction_periods=args.prediction_periods
+        lstm_units=args.lstm_units if args.lstm_units > 64 else 128,  # Use at least 128 units
+        dropout_rate=0.3,  # Slightly higher dropout for regularization
+        prediction_periods=args.prediction_periods,
+        use_batch_norm=True,  # Enable batch normalization
+        use_residual=True,  # Enable residual connections
+        use_multihead_attention=False,  # Can enable for even better performance
+        num_attention_heads=4
     )
     
     # Build model
@@ -191,6 +220,22 @@ def predict_demand(args, model=None, preprocessor=None):
     print("Making Demand Predictions")
     print("=" * 60)
     
+    # Load and prepare data if preprocessor not provided (needed to determine n_features)
+    if preprocessor is None:
+        preprocessor = DataPreprocessor(data_dir="data")
+        merged_df = preprocessor.load_data()
+        demand_df = preprocessor.aggregate_demand(merged_df, frequency=args.frequency)
+        preprocessor.demand_data = demand_df
+    
+    # Determine number of features from the data
+    # Create a temporary sequence to get the feature count
+    X_temp, _ = preprocessor.create_sequences(
+        preprocessor.demand_data,
+        sequence_length=args.sequence_length,
+        prediction_periods=args.prediction_periods
+    )
+    n_features = X_temp.shape[2]
+    
     # Load model if not provided
     if model is None:
         if not os.path.exists(args.model_path):
@@ -198,26 +243,17 @@ def predict_demand(args, model=None, preprocessor=None):
                 f"Model not found at {args.model_path}. Please train a model first using --train flag."
             )
         
-        # We need to rebuild the model structure first
-        # For simplicity, we'll use the same parameters as training
-        # In production, you'd save these parameters separately
+        # Rebuild the model structure with correct number of features
         model = AttentionLSTM(
             sequence_length=args.sequence_length,
-            n_features=6,  # Default number of features
+            n_features=n_features,  # Dynamic number of features from data
             lstm_units=args.lstm_units,
             dropout_rate=0.2,
             prediction_periods=args.prediction_periods
         )
         model.load_model(args.model_path)
     
-    # Load and prepare data if preprocessor not provided
-    if preprocessor is None:
-        preprocessor = DataPreprocessor(data_dir="data")
-        merged_df = preprocessor.load_data()
-        demand_df = preprocessor.aggregate_demand(merged_df, frequency=args.frequency)
-        preprocessor.demand_data = demand_df
-    
-    # Get the last sequence for prediction
+    # Get sequences for prediction (we already have X_temp from above, but recreate to ensure consistency)
     X, _ = preprocessor.create_sequences(
         preprocessor.demand_data,
         sequence_length=args.sequence_length,
@@ -258,8 +294,12 @@ def predict_demand(args, model=None, preprocessor=None):
         'predicted_demand': prediction[0]
     })
     
+    # Ensure reports directory exists
+    reports_dir = 'reports'
+    os.makedirs(reports_dir, exist_ok=True)
+    
     # Save predictions
-    predictions_path = 'predictions.csv'
+    predictions_path = os.path.join(reports_dir, 'predictions.csv')
     prediction_df.to_csv(predictions_path, index=False)
     print(f"\nPredictions saved to {predictions_path}")
     
@@ -270,8 +310,8 @@ def plot_results(history, y_test, y_pred, args):
     """Plot training history and prediction results."""
     print("\nGenerating plots...")
     
-    # Create plots directory
-    os.makedirs('plots', exist_ok=True)
+    # Ensure reports directory exists for plots
+    os.makedirs('reports', exist_ok=True)
     
     # Plot 1: Training history
     fig, axes = plt.subplots(1, 2, figsize=(15, 5))
@@ -293,8 +333,8 @@ def plot_results(history, y_test, y_pred, args):
     axes[1].grid(True)
     
     plt.tight_layout()
-    plt.savefig('plots/training_history.png', dpi=300, bbox_inches='tight')
-    print("Training history plot saved to plots/training_history.png")
+    plt.savefig('reports/training_history.png', dpi=300, bbox_inches='tight')
+    print("Training history plot saved to reports/training_history.png")
     
     # Plot 2: Predictions vs Actual
     plt.figure(figsize=(12, 6))
@@ -319,8 +359,8 @@ def plot_results(history, y_test, y_pred, args):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig('plots/predictions_vs_actual.png', dpi=300, bbox_inches='tight')
-    print("Predictions vs actual plot saved to plots/predictions_vs_actual.png")
+    plt.savefig('reports/predictions_vs_actual.png', dpi=300, bbox_inches='tight')
+    print("Predictions vs actual plot saved to reports/predictions_vs_actual.png")
     
     # Plot 3: Scatter plot
     plt.figure(figsize=(8, 8))
@@ -334,10 +374,61 @@ def plot_results(history, y_test, y_pred, args):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig('plots/scatter_plot.png', dpi=300, bbox_inches='tight')
-    print("Scatter plot saved to plots/scatter_plot.png")
+    plt.savefig('reports/scatter_plot.png', dpi=300, bbox_inches='tight')
+    print("Scatter plot saved to reports/scatter_plot.png")
     
     plt.close('all')
+
+
+def train_location_models(args):
+    """Train location-based models and generate Excel report."""
+    print("=" * 60)
+    print(f"Location-Based Demand Prediction ({args.location_type.upper()})")
+    print("=" * 60)
+    
+    # Initialize location-based predictor
+    predictor = LocationBasedPredictor(
+        data_dir="data",
+        location_type=args.location_type,
+        min_samples_per_location=args.min_location_samples
+    )
+    
+    # Prepare location data
+    predictor.prepare_location_data(frequency=args.frequency)
+    
+    # Train models for each location
+    predictor.train_location_models(
+        sequence_length=args.sequence_length,
+        prediction_periods=args.prediction_periods,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        test_size=args.test_size,
+        lstm_units=args.lstm_units if args.lstm_units > 64 else 128
+    )
+    
+    # Make predictions for all locations
+    predictions = predictor.predict_all_locations(
+        sequence_length=args.sequence_length,
+        prediction_periods=args.prediction_periods
+    )
+    
+    # Ensure reports directory exists
+    reports_dir = os.path.dirname(args.report_file) if os.path.dirname(args.report_file) else 'reports'
+    if not os.path.exists(reports_dir):
+        os.makedirs(reports_dir, exist_ok=True)
+    
+    # Generate Excel report
+    report_file = predictor.generate_excel_report(
+        predictions=predictions,
+        output_file=args.report_file
+    )
+    
+    print(f"\n{'='*60}")
+    print(f"Location-Based Prediction Complete!")
+    print(f"Excel Report: {report_file}")
+    print(f"{'='*60}")
+    
+    return predictor, predictions
 
 
 def main():
@@ -348,17 +439,28 @@ def main():
     np.random.seed(42)
     tf.random.set_seed(42)
     
-    if args.train:
-        model, preprocessor = train_model(args)
-        
-        # If predict flag is also set, make predictions
-        if args.predict:
-            predict_demand(args, model=model, preprocessor=preprocessor)
-    elif args.predict:
-        predict_demand(args)
+    # Handle location-based prediction
+    if args.location_based:
+        if args.train:
+            train_location_models(args)
+        else:
+            print("Location-based prediction requires --train flag")
+            print("Use: python main.py --train --location_based --location_type state")
     else:
-        print("Please specify --train or --predict (or both)")
-        print("Use --help for more information")
+        # Standard prediction
+        if args.train:
+            model, preprocessor = train_model(args)
+            
+            # If predict flag is also set, make predictions
+            if args.predict:
+                predict_demand(args, model=model, preprocessor=preprocessor)
+        elif args.predict:
+            predict_demand(args)
+        else:
+            print("Please specify --train or --predict (or both)")
+            print("Use --help for more information")
+            print("\nFor location-based prediction, use:")
+            print("  python main.py --train --location_based --location_type state")
 
 
 if __name__ == "__main__":

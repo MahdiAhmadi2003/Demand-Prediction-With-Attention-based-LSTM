@@ -4,11 +4,21 @@ A deep learning solution for predicting demand in e-commerce using an Attention-
 
 ## Features
 
-- **Attention-based LSTM Architecture**: Implements a sophisticated neural network with attention mechanism for better time series forecasting
+- **Enhanced Attention-based LSTM Architecture**: Implements a sophisticated neural network with multi-head attention, batch normalization, and residual connections
+- **Location-Based Prediction**: Predict demand by city or state with separate models and detailed Excel reports
+- **Comprehensive Feature Engineering**: 58 features including lag features, rolling statistics, and trend indicators
 - **Flexible Prediction Periods**: Predict demand for the next period(s) (configurable parameter)
 - **Multiple Time Frequencies**: Support for daily, weekly, and monthly aggregation
 - **Comprehensive Evaluation**: Includes MAE, RMSE, MAPE metrics and visualization
 - **Production Ready**: Well-structured code following software engineering best practices
+
+## Documentation
+
+Detailed documentation is available in the `doc/` folder:
+
+- **[Data Relationships](doc/DATA_RELATIONSHIPS.md)**: Complete guide to data relationships and all features used
+- **[Model Enhancements](doc/MODEL_ENHANCEMENTS.md)**: Detailed explanation of model architecture improvements
+- **[Location-Based Guide](doc/LOCATION_BASED_GUIDE.md)**: Guide for location-based prediction and Excel reporting
 
 ## Project Structure
 
@@ -18,12 +28,27 @@ A deep learning solution for predicting demand in e-commerce using an Attention-
 │   ├── olist_orders_dataset.csv
 │   ├── olist_order_items_dataset.csv
 │   └── ...
+├── doc/                           # Documentation folder
+│   ├── README.md                  # Documentation index
+│   ├── DATA_RELATIONSHIPS.md      # Data relationships and features documentation
+│   ├── MODEL_ENHANCEMENTS.md       # Model architecture enhancements guide
+│   └── LOCATION_BASED_GUIDE.md    # Location-based prediction guide
+├── src/                           # Source code package
+│   ├── __init__.py                # Package initialization
+│   ├── attention_lstm_model.py    # Attention-based LSTM model implementation
+│   ├── data_preprocessing.py      # Data loading and preprocessing module
+│   ├── demand_prediction.py       # Core script for training and prediction
+│   ├── location_based_prediction.py # Location-based prediction module
+│   ├── training_progress.py       # Enhanced training progress display
+│   └── config.py                  # Configuration parameters
+├── models/                        # Trained models directory
+├── reports/                       # Generated reports and plots directory
+│   ├── predictions.csv            # Standard predictions (CSV)
+│   ├── location_demand_report.xlsx # Location-based Excel reports
+│   ├── training_history.png       # Training history plots
+│   ├── predictions_vs_actual.png # Predictions vs actual comparison
+│   └── scatter_plot.png          # Scatter plot of predictions
 ├── main.py                        # Main entry point (run this to start)
-├── demand_prediction.py           # Core script for training and prediction
-├── data_preprocessing.py          # Data loading and preprocessing module
-├── attention_lstm_model.py        # Attention-based LSTM model implementation
-├── training_progress.py           # Enhanced training progress display
-├── config.py                      # Configuration parameters
 ├── requirements.txt               # Python dependencies
 ├── README.md                      # This file
 └── .gitignore                     # Git ignore rules
@@ -102,6 +127,24 @@ Include visualization plots:
 python main.py --train --plot
 ```
 
+### Location-Based Prediction
+
+Predict demand by city or state with detailed Excel reports:
+```bash
+# By state
+python main.py --train --location_based --location_type state
+
+# By city
+python main.py --train --location_based --location_type city
+
+# With custom parameters
+python main.py --train --location_based --location_type state \
+    --epochs 30 --min_location_samples 150 \
+    --report_file my_report.xlsx
+```
+
+See [Location-Based Guide](doc/LOCATION_BASED_GUIDE.md) for detailed information.
+
 ### Training Progress
 
 The training process displays:
@@ -150,9 +193,9 @@ The preprocessing pipeline:
 - `models/demand_prediction_model.h5`: Trained model file
 - `models/demand_prediction_model_history.json`: Training history
 - `predictions.csv`: Predicted demand values
-- `plots/training_history.png`: Training loss and metrics plots
-- `plots/predictions_vs_actual.png`: Comparison of predictions vs actual values
-- `plots/scatter_plot.png`: Scatter plot of predictions vs actual
+- `reports/training_history.png`: Training loss and metrics plots
+- `reports/predictions_vs_actual.png`: Comparison of predictions vs actual values
+- `reports/scatter_plot.png`: Scatter plot of predictions vs actual
 
 ## Evaluation Metrics
 
@@ -173,7 +216,7 @@ The model is evaluated using:
    - Training and validation metrics
    - Time elapsed and estimated time remaining
    - Progress percentage
-4. **Review the results**: Check the plots in `plots/` directory
+4. **Review the results**: Check the plots and reports in `reports/` directory
 5. **Make predictions**:
    ```bash
    python main.py --predict
